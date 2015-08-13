@@ -1,0 +1,176 @@
+#include "pcl_ros/point_cloud.h"
+#include <pcl/point_types.h>
+#include <pcl_ros/filters/filter.h>
+#include <ros/ros.h>
+#include <iostream>
+#include <fstream>
+#include <limits>
+
+#include <tf/transform_datatypes.h>
+#include <tf/LinearMath/Transform.h>
+#include "pcl_ros/transforms.h"
+#include <pcl_ros/impl/transforms.hpp>
+#include <tf/transform_listener.h>
+#include <math.h>
+
+#include <map>
+#include <string>
+#include "hector_navigation/Map.h"
+#include "hector_navigation/Coordinate.h"
+#include "hector_navigation/StructKeyMap.h"
+
+#include "visualization_msgs/Marker.h"
+#include "visualization_msgs/MarkerArray.h"
+
+
+class VisualObstacle
+{
+
+public:
+    VisualObstacle()
+    {
+    
+     sub_filter = nh.subscribe<pcl::PointCloud<pcl::PointXYZ> > ("FilteredPoints", 1, &VisualObstacle::callback,this);
+     sub_map = nh.subscribe<hector_navigation::Map>("Entire_Map", 1, &VisualObstacle::callback_map,this);
+     map_pub = nh.advertise<hector_navigation::Map>("Entire_Map", 1);
+     pub_CubeList = nh.advertise<visualization_msgs::Marker>("CubeList", 1);
+
+   }
+
+    void callback_map(const hector_navigation::Map::ConstPtr& inputMap);
+    void callback(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr& inputCloud );
+
+    hector_navigation::Map entire_map; 
+    typedef std::map<position,int> map_;
+
+private:
+    ros::NodeHandle nh;
+    ros::Subscriber sub_filter;
+    ros::Subscriber sub_map;
+    ros::Publisher map_pub;
+    ros::Publisher pub_CubeList;
+};
+
+
+void VisualObstacle::callback_map(const hector_navigation::Map::ConstPtr& inputMap)
+{
+
+   entire_map.points=inputMap->points;
+   entire_map.cv=inputMap ->cv;
+
+}
+
+void VisualObstacle::callback(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr& inputCloud )
+{
+    tf::TransformListener listener;
+    tf::StampedTransform transform2;
+    listener.waitForTransform("world", "base_link", ros::Time(0),ros::Duration(3.0));
+    listener.lookupTransform("world", "base_link", ros::Time(0), transform2);
+    double x= round(transform2.getOrigin().x()/0.1);//UAV location in gloabl 3D grid frame
+    double y= round(transform2.getOrigin().y()/0.1);
+    double z= round(transform2.getOrigin().z()/0.1); 
+
+    position P1;
+    position P2;
+    position P3;
+    map_ tep_map;
+    int map_size = entire_map.cv.size();
+    for(int i=0; i<map_size; i++)
+   {  
+         P1.x=entire_map.points[i].x;
+         P1.y=entire_map.points[i].y;
+         P1.z=entire_map.points[i].z;
+
+	 tep_map[P1]=entire_map.cv[i];	     
+   }
+
+// add new COR into local_map (std::map structure) project 
+
+     int cloudsize = (inputCloud -> width) * (inputCloud -> height);
+     double x_;
+     double y_;
+     double z_;
+     for( int j=0; j<cloudsize; j++)
+     {  
+
+        x_= round((inputCloud ->points[j].x)/0.1);
+        y_= round((inputCloud ->points[j].y)/0.1);
+        z_= round((inputCloud ->points[j].z)/0.1);
+
+        if ((x_ >=(x-29) && x_<=(x+29)) && (y_ >=(y-29) && y_<=(y+29)) && (z_ >=(z-29) && z_<=(z+29)))
+	   {
+	    P2.x=x_;
+	    P2.y=y_;
+	    P2.z=z_;
+
+            int value =tep_map[P2];
+            if (value <20)
+		{
+		  value++;
+		}
+            tep_map[P2]=value;
+
+	   }
+     }
+
+  // convert local_map project into (std::vector structure) to publish
+     visualization_msgs::Marker cube_list;
+     cube_list.header.frame_id = "world";
+     cube_list.header.stamp = ros::Time::now();
+     cube_list.ns = "Cubes";
+     cube_list.id = 2;
+     cube_list.type = visualization_msgs::Marker::CUBE_LIST;
+     cube_list.action = visualization_msgs::Marker::ADD;
+     cube_list.pose.orientation.w = 1.0;
+     cube_list.scale.x = 0.1f;
+     cube_list.scale.y = 0.1f;
+     cube_list.scale.z = 0.1f;
+     cube_list.color.r = 1.0f;
+     cube_list.color.g = 0.5f;
+     cube_list.color.a = 1.0;
+     cube_list.lifetime = ros::Duration();
+
+      hector_navigation::Coordinate coord;
+      map_::iterator iter;
+      for (iter = tep_map.begin(); iter != tep_map.end();++iter)
+      {
+        P3=  iter->first;
+        coord.x=P3.x;
+        coord.y=P3.y;
+        coord.z=P3.z;
+        if ((iter->second)==20)
+        {
+            geometry_msgs::Point temp;
+            temp.x = coord.x*0.1-0.05;
+            temp.y = coord.y*0.1-0.05;
+            temp.z = coord.z*0.1-0.05;
+            cube_list.points.push_back(temp);
+	}
+
+        entire_map.points.push_back(coord);
+        entire_map.cv.push_back(iter->second);
+      }
+
+      pub_CubeList.publish(cube_list);
+      entire_map.header.stamp=ros::Time::now();
+      map_pub.publish(entire_map);
+
+
+}
+
+
+
+int main(int argc, char **argv)
+{
+     ros::init(argc, argv, "visual_obstacle_node");
+
+     VisualObstacle  obstacleproject;
+
+     ros::spin();
+   
+
+     return 0;
+}
+
+
+

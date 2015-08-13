@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+
+<launch>
+
+   <!-- start filter pointcloud pub node -->
+   <node pkg="hector_navigation" type="FilterPointcloud" name="filter_pointcloud_node" output="screen"  />
+
+ 
+   <node 
+	pkg="hector_navigation" 
+	type="LocalMap"
+	name="local_map_node" 
+	output="screen" 
+
+   />
+
+   <node 
+	pkg="hector_navigation" 
+	type="SphereMap" 
+	name="sphere_map_node" 
+	output="screen"
+	   
+   />
+
+   <node 
+	pkg="hector_navigation" 
+	type="Command" 
+	name="command_node" 
+	output="screen"  
+   />
+
+</launch>
